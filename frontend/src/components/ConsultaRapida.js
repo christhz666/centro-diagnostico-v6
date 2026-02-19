@@ -167,19 +167,6 @@ const ConsultaRapida = () => {
       }
     } catch (err) {
       setError('Error: ' + err.message);
-            setResultados(latestResults);
-          } else {
-            // If no cita reference, show only the most recent result
-            setResultados(allResults.slice(0, 1));
-          }
-        } else {
-          setResultados([]);
-        }
-      } catch (e) {
-        setResultados([]);
-      }
-    } catch (err) {
-      setError('Error: ' + err.message);
       setTimeout(() => { setCodigo(''); setError(''); }, 3000);
     } finally {
       setLoading(false);
