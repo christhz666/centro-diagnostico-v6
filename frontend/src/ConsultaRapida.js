@@ -1,3 +1,6 @@
+ · JS
+Copiar
+
 import React, { useState, useEffect, useRef } from 'react';
 import { FaBarcode, FaSearch, FaUser, FaFlask, FaPrint, FaCheckCircle, FaClock, FaTimes, FaSpinner } from 'react-icons/fa';
 import api from '../services/api';
@@ -9,40 +12,103 @@ const ConsultaRapida = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [resultadoSeleccionado, setResultadoSeleccionado] = useState(null);
+  const [empresaConfig, setEmpresaConfig] = useState({});
   const inputRef = useRef(null);
 
   // Constantes para códigos
   const CODIGO_PACIENTE_PREFIX = 'PAC';
-  const CODIGO_PACIENTE_MIN_LENGTH = 8;
+  const CODIGO_PACIENTE_MIN_LENGTH = 11;
+  // Nuevo formato simple: L1328 (lab) o 1329 (otras áreas)
+  const CODIGO_MUESTRA_SIMPLE_MIN_LENGTH = 1; // Al menos 1 dígito
+  // Formato antiguo para retrocompatibilidad
   const CODIGO_MUESTRA_PREFIX = 'MUE-';
-  const CODIGO_MUESTRA_MIN_LENGTH = 13; // Formato completo: MUE-YYYYMMDD-NNNNN (18 chars)
+  const CODIGO_MUESTRA_MIN_LENGTH = 13; // Formato: MUE-YYYYMMDD-NNNNN
 
-  // Enfocar el input automáticamente para el escáner
+  const colores = {
+    azulCielo: '#87CEEB',
+    azulOscuro: '#1a3a5c',
+    blanco: '#FFFFFF',
+    negro: '#000000'
+  };
+
   useEffect(() => {
     inputRef.current?.focus();
+    const interval = setInterval(() => {
+      if (document.activeElement !== inputRef.current) {
+        inputRef.current?.focus();
+      }
+    }, 2000);
+    return () => clearInterval(interval);
   }, []);
 
-  // Buscar cuando el código tenga el formato correcto
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    fetch('/api/configuracion/', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => res.json())
+      .then(data => setEmpresaConfig(data.configuracion || data || {}))
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     const tieneFormatoPaciente = codigo.length >= CODIGO_PACIENTE_MIN_LENGTH && codigo.startsWith(CODIGO_PACIENTE_PREFIX);
     const tieneFormatoMuestra = codigo.length >= CODIGO_MUESTRA_MIN_LENGTH && codigo.startsWith(CODIGO_MUESTRA_PREFIX);
+    // Nuevo formato simple: L1328 o solo número 1329
+    const esFormatoSimple = /^L?\d+$/.test(codigo) && codigo.length >= CODIGO_MUESTRA_SIMPLE_MIN_LENGTH;
     
-    if (tieneFormatoPaciente || tieneFormatoMuestra) {
+    if (tieneFormatoPaciente || tieneFormatoMuestra || esFormatoSimple) {
       buscarPaciente();
     }
   }, [codigo]);
 
   const buscarPaciente = async () => {
     if (!codigo.trim()) return;
-    
     try {
       setLoading(true);
       setError('');
       setPaciente(null);
       setResultados([]);
 
-      // Si es un código de muestra (MUE-YYYYMMDD-NNNNN), buscar el resultado
-      if (codigo.startsWith(CODIGO_MUESTRA_PREFIX) && codigo.length >= CODIGO_MUESTRA_MIN_LENGTH) {
+      const codigoLimpio = codigo.trim().toUpperCase();
+
+      // 1. Intentar como código QR de factura (16 chars hex)
+      if (/^[A-F0-9]{12,16}$/.test(codigoLimpio)) {
+        try {
+          const response = await fetch('/api/resultados/qr/' + codigoLimpio, {
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+              setPaciente(data.paciente);
+              setResultados(data.data || []);
+              return;
+            }
+          }
+        } catch (e) { /* continuar */ }
+      }
+
+      // 2. Intentar como número de factura (FAC-YYYYMM-NNNNN)
+      if (/^FAC-/i.test(codigoLimpio)) {
+        try {
+          const response = await fetch('/api/resultados/factura/' + codigoLimpio, {
+            headers: { 'Authorization': 'Bearer ' + localStorage.getItem('token') }
+          });
+          if (response.ok) {
+            const data = await response.json();
+            if (data.success) {
+              setPaciente(data.paciente);
+              setResultados(data.data || []);
+              return;
+            }
+          }
+        } catch (e) { /* continuar */ }
+      }
+
+      // 3. Intentar como código de muestra (L1234 o número simple)
+      const esFormatoSimple = /^L?\d+$/.test(codigo) && codigo.length >= CODIGO_MUESTRA_SIMPLE_MIN_LENGTH;
+      if (esFormatoSimple || (codigo.startsWith(CODIGO_MUESTRA_PREFIX) && codigo.length >= CODIGO_MUESTRA_MIN_LENGTH)) {
         try {
           const response = await api.getResultadoPorCodigoMuestra(codigo);
           const resultado = response.data || response;
@@ -56,55 +122,57 @@ const ConsultaRapida = () => {
             return;
           }
         } catch (err) {
-          setError('No se encontró ningún resultado con código: ' + codigo);
+          setError('No se encontró resultado con código: ' + codigo);
+          setTimeout(() => { setCodigo(''); setError(''); }, 3000);
           return;
         }
       }
 
-      // Extraer el ID del código (PAC + últimos 8 caracteres del ID)
+      // 4. Intentar como código de paciente (PAC...)
       const idParcial = codigo.replace(CODIGO_PACIENTE_PREFIX, '').toLowerCase();
+      const response = await api.getPacientes({ search: '' });
+      const pacientes = response.data || response || [];
       
-      // Buscar pacientes
-      const response = await api.getPacientes({ search: idParcial });
-      const pacientes = response.data || [];
+      const pacienteEncontrado = pacientes.find(p => {
+        const pacId = (p._id || p.id || '').toLowerCase();
+        return pacId.endsWith(idParcial) || pacId.includes(idParcial);
+      });
 
-      if (pacientes.length === 0) {
-        // Intentar buscar por el código completo en la cédula
-        const response2 = await api.getPacientes({ search: codigo });
-        const pacientes2 = response2.data || [];
-        
-        if (pacientes2.length === 0) {
-          setError('No se encontró ningún paciente con este código');
-          return;
+      if (!pacienteEncontrado) {
+        setError('Código no reconocido: ' + codigo + '. Use el código de barras de la factura.');
+        setTimeout(() => { setCodigo(''); setError(''); }, 4000);
+        return;
+      }
+
+      setPaciente(pacienteEncontrado);
+      
+      try {
+        const pacienteId = pacienteEncontrado._id || pacienteEncontrado.id;
+        const resResponse = await api.getResultados({ paciente: pacienteId, limit: 5 });
+        const allResults = Array.isArray(resResponse) ? resResponse : (resResponse.data || resResponse || []);
+        // For barcode search, show only the most recent order's results
+        if (allResults.length > 0) {
+          const latestCita = allResults[0].cita;
+          if (latestCita) {
+            const latestResults = allResults.filter(r => {
+              const citaId = r.cita?._id || r.cita;
+              return citaId === latestCita._id || citaId === latestCita;
+            });
+            setResultados(latestResults);
+          } else {
+            setResultados(allResults.slice(0, 1));
+          }
+        } else {
+          setResultados([]);
         }
-        
-        await cargarPaciente(pacientes2[0]);
-      } else {
-        await cargarPaciente(pacientes[0]);
+      } catch (e) {
+        setResultados([]);
       }
     } catch (err) {
-      setError('Error al buscar: ' + err.message);
+      setError('Error: ' + err.message);
+      setTimeout(() => { setCodigo(''); setError(''); }, 3000);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const cargarPaciente = async (pac) => {
-    setPaciente(pac);
-    
-    // Cargar resultados del paciente
-    try {
-      const resResponse = await api.getResultados({ paciente: pac._id || pac.id });
-      setResultados(resResponse.data || []);
-    } catch (err) {
-      console.error('Error cargando resultados:', err);
-      setResultados([]);
-    }
-  };
-
-  const buscarManual = () => {
-    if (codigo.trim()) {
-      buscarPaciente();
     }
   };
 
@@ -117,108 +185,6 @@ const ConsultaRapida = () => {
     inputRef.current?.focus();
   };
 
-  const imprimirResultado = (resultado) => {
-    const ventana = window.open('', 'Resultado', 'width=600,height=800');
-    
-    const valoresHTML = (resultado.valores || []).map(v => `
-      <tr>
-        <td style="padding:8px;border:1px solid #ddd;">${v.parametro}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:center;font-weight:bold;">${v.valor} ${v.unidad || ''}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:center;">${v.valorReferencia || '-'}</td>
-        <td style="padding:8px;border:1px solid #ddd;text-align:center;">
-          <span style="padding:3px 10px;border-radius:10px;font-size:11px;
-            background:${v.estado === 'normal' ? '#d4edda' : v.estado === 'alto' ? '#f8d7da' : '#fff3cd'};
-            color:${v.estado === 'normal' ? '#155724' : v.estado === 'alto' ? '#721c24' : '#856404'};">
-            ${v.estado || '-'}
-          </span>
-        </td>
-      </tr>
-    `).join('');
-
-    ventana.document.write(`
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Resultado - ${paciente?.nombre} ${paciente?.apellido}</title>
-  <style>
-    body { font-family: Arial, sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; }
-    .header { text-align: center; border-bottom: 2px solid #3498db; padding-bottom: 15px; margin-bottom: 20px; }
-    .logo { font-size: 24px; font-weight: bold; color: #e74c3c; }
-    .info-box { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
-    table { width: 100%; border-collapse: collapse; margin: 20px 0; }
-    th { background: #3498db; color: white; padding: 10px; text-align: left; }
-    .firma { margin-top: 50px; text-align: center; }
-    .firma-linea { border-top: 1px solid #000; width: 200px; margin: 0 auto; padding-top: 5px; }
-    @media print { body { padding: 10px; } }
-  </style>
-</head>
-<body>
-  <div class="header">
-    <div class="logo"?? MI ESPERANZA</div>
-    <div>CENTRO DIAGNÓSTICO</div>
-    <div style="font-size:12px;color:#666;">Tel: 809-000-0000 | www.miesperanza.com</div>
-  </div>
-
-  <h2 style="color:#3498db;border-bottom:1px solid #ddd;padding-bottom:10px;">
-    RESULTADO DE ${resultado.estudio?.nombre?.toUpperCase() || 'ESTUDIO'}
-  </h2>
-
-  <div class="info-box">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-      <div><strong>Paciente:</strong> ${paciente?.nombre} ${paciente?.apellido}</div>
-      <div><strong>Cédula:</strong> ${paciente?.cedula || 'N/A'}</div>
-      <div><strong>Fecha:</strong> ${new Date(resultado.createdAt).toLocaleDateString('es-DO')}</div>
-      <div><strong>Edad:</strong> ${calcularEdad(paciente?.fechaNacimiento)} años</div>
-    </div>
-  </div>
-
-  <table>
-    <thead>
-      <tr>
-        <th>Parámetro</th>
-        <th style="text-align:center;">Valor</th>
-        <th style="text-align:center;">Referencia</th>
-        <th style="text-align:center;">Estado</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${valoresHTML || '<tr><td colspan="4" style="padding:20px;text-align:center;">Sin valores registrados</td></tr>'}
-    </tbody>
-  </table>
-
-  ${resultado.interpretacion ? `
-    <div style="margin:20px 0;">
-      <strong>Interpretación:</strong>
-      <p style="background:#f0f8ff;padding:10px;border-radius:5px;margin-top:5px;">${resultado.interpretacion}</p>
-    </div>
-  ` : ''}
-
-  ${resultado.conclusion ? `
-    <div style="margin:20px 0;">
-      <strong>Conclusión:</strong>
-      <p style="background:#f0fff0;padding:10px;border-radius:5px;margin-top:5px;">${resultado.conclusion}</p>
-    </div>
-  ` : ''}
-
-  <div class="firma">
-    <div class="firma-linea">
-      ${resultado.validadoPor?.nombre || resultado.medico?.nombre || 'Médico'} ${resultado.validadoPor?.apellido || resultado.medico?.apellido || ''}
-    </div>
-    <div style="font-size:12px;color:#666;">Firma del Médico</div>
-  </div>
-
-  <div style="margin-top:30px;text-align:center;font-size:11px;color:#999;">
-    Documento generado el ${new Date().toLocaleString('es-DO')}
-  </div>
-
-  <script>window.onload = function() { window.print(); }</script>
-</body>
-</html>
-    `);
-    
-    ventana.document.close();
-  };
-
   const calcularEdad = (fecha) => {
     if (!fecha) return 'N/A';
     const hoy = new Date();
@@ -229,214 +195,218 @@ const ConsultaRapida = () => {
     return edad;
   };
 
+  const getSeguroNombre = (pac) => {
+    if (!pac?.seguro) return 'Sin seguro';
+    if (typeof pac.seguro === 'string') return pac.seguro;
+    if (typeof pac.seguro === 'object') return pac.seguro.nombre || 'Sin seguro';
+    return 'Sin seguro';
+  };
+
+  // IMPRESION A4 - UNA SOLA PAGINA
+  const escapeHtml = (str) => {
+    if (!str) return '';
+    return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+  };
+
+  const imprimirResultado = (resultado) => {
+    const ventana = window.open('', 'Resultado', 'width=800,height=1000');
+    
+    const valoresHTML = (resultado.valores || []).map(v => {
+      const estadoColor = v.estado === 'normal' ? '#d4edda' : v.estado === 'alto' ? '#f8d7da' : '#fff3cd';
+      const estadoTexto = v.estado === 'normal' ? '#155724' : v.estado === 'alto' ? '#721c24' : '#856404';
+      return '<tr>' +
+        '<td style="padding:10px;border:1px solid #87CEEB;">' + escapeHtml(v.parametro || v.nombre || '') + '</td>' +
+        '<td style="padding:10px;border:1px solid #87CEEB;text-align:center;font-weight:bold;color:#1a3a5c;">' + escapeHtml(v.valor || '') + ' ' + escapeHtml(v.unidad || '') + '</td>' +
+        '<td style="padding:10px;border:1px solid #87CEEB;text-align:center;font-size:12px;color:#666;">' + escapeHtml(v.valorReferencia || '-') + '</td>' +
+        '<td style="padding:10px;border:1px solid #87CEEB;text-align:center;">' +
+          '<span style="padding:4px 12px;border-radius:12px;font-size:11px;background:' + estadoColor + ';color:' + estadoTexto + ';">' + escapeHtml(v.estado || 'N/A') + '</span>' +
+        '</td>' +
+      '</tr>';
+    }).join('');
+
+    const edadPaciente = calcularEdad(paciente?.fechaNacimiento);
+    const nombreEstudio = resultado.estudio?.nombre || resultado.nombreEstudio || 'ESTUDIO CLINICO';
+    const fechaResultado = new Date(resultado.createdAt || resultado.fecha).toLocaleDateString('es-DO');
+    const doctorNombre = resultado.validadoPor?.nombre || resultado.medico?.nombre || '________________';
+    
+    let htmlContent = '<!DOCTYPE html><html><head>';
+    htmlContent += '<title>Resultado - ' + (paciente?.nombre || 'Paciente') + '</title>';
+    htmlContent += '<style>';
+    htmlContent += '@page { size: A4; margin: 10mm 15mm; }';
+    htmlContent += 'body { font-family: Arial, sans-serif; margin: 0; padding: 10px; color: #1a3a5c; font-size: 12px; }';
+    htmlContent += '.header { text-align: center; border-bottom: 3px solid #1a3a5c; padding-bottom: 10px; margin-bottom: 15px; }';
+    htmlContent += '.header img { max-width: 180px; }';
+    htmlContent += '.section-title { background: #1a3a5c; color: white; padding: 8px 15px; border-radius: 5px; margin: 15px 0 10px; font-size: 13px; font-weight: bold; }';
+    htmlContent += '.info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; background: #f0f8ff; padding: 12px; border-radius: 8px; border-left: 4px solid #1a3a5c; margin-bottom: 15px; }';
+    htmlContent += 'table { width: 100%; border-collapse: collapse; margin: 10px 0; }';
+    htmlContent += 'th { background: #1a3a5c; color: white; padding: 10px; text-align: left; font-size: 11px; }';
+    htmlContent += '.firma { margin-top: 50px; text-align: center; }';
+    htmlContent += '.firma-linea { border-top: 2px solid #1a3a5c; width: 200px; margin: 0 auto; padding-top: 8px; }';
+    htmlContent += '.footer { background: #1a3a5c; color: white; padding: 10px; text-align: center; border-radius: 5px; margin-top: 15px; font-size: 10px; }';
+    htmlContent += '@media print { .no-print { display: none; } }';
+    htmlContent += '</style></head><body>';
+    
+    htmlContent += '<div class="header">';
+    htmlContent += '<img src="' + escapeHtml(empresaConfig.logo_resultados || '/logo-centro.png') + '" alt="' + escapeHtml(empresaConfig.empresa_nombre || 'Centro Diagnóstico') + '" onerror="this.onerror=null;this.src=\'/logo-centro.png\';" />';
+    htmlContent += '<div style="font-size:10px;margin-top:5px;">' + escapeHtml(empresaConfig.empresa_direccion || '') + '<br/>Tel: ' + escapeHtml(empresaConfig.empresa_telefono || '') + (empresaConfig.empresa_email ? ' | ' + escapeHtml(empresaConfig.empresa_email) : '') + '</div>';
+    htmlContent += '</div>';
+    
+    htmlContent += '<div class="section-title">INFORMACION DEL PACIENTE</div>';
+    
+    htmlContent += '<div class="info-grid">';
+    htmlContent += '<div><strong>Paciente:</strong> ' + escapeHtml(paciente?.nombre || '') + ' ' + escapeHtml(paciente?.apellido || '') + '</div>';
+    htmlContent += '<div><strong>Cedula:</strong> ' + escapeHtml(paciente?.cedula || 'N/A') + '</div>';
+    htmlContent += '<div><strong>Edad:</strong> ' + escapeHtml(String(edadPaciente)) + ' años</div>';
+    htmlContent += '<div><strong>Sexo:</strong> ' + (paciente?.sexo === 'M' ? 'Masculino' : 'Femenino') + '</div>';
+    htmlContent += '<div><strong>Nacionalidad:</strong> ' + escapeHtml(paciente?.nacionalidad || 'Dominicano') + '</div>';
+    htmlContent += '<div><strong>Fecha:</strong> ' + escapeHtml(fechaResultado) + '</div>';
+    htmlContent += '</div>';
+    
+    htmlContent += '<div class="section-title">RESULTADO: ' + escapeHtml(nombreEstudio) + '</div>';
+    
+    htmlContent += '<table><thead><tr>';
+    htmlContent += '<th style="width:35%;">Parametro</th>';
+    htmlContent += '<th style="width:25%;text-align:center;">Resultado</th>';
+    htmlContent += '<th style="width:25%;text-align:center;">Valor Referencia</th>';
+    htmlContent += '<th style="width:15%;text-align:center;">Estado</th>';
+    htmlContent += '</tr></thead><tbody>';
+    htmlContent += valoresHTML || '<tr><td colspan="4" style="padding:20px;text-align:center;color:#999;">Sin valores registrados</td></tr>';
+    htmlContent += '</tbody></table>';
+    
+    if (resultado.interpretacion) {
+      htmlContent += '<div style="background:#e6f3ff;border-left:4px solid #1a3a5c;padding:10px;border-radius:5px;margin:10px 0;">';
+      htmlContent += '<strong>INTERPRETACION:</strong><p style="margin:5px 0 0;">' + escapeHtml(resultado.interpretacion) + '</p></div>';
+    }
+    
+    if (resultado.conclusion) {
+      htmlContent += '<div style="background:#e8f5e9;border-left:4px solid #27ae60;padding:10px;border-radius:5px;margin:10px 0;">';
+      htmlContent += '<strong>CONCLUSION:</strong><p style="margin:5px 0 0;">' + escapeHtml(resultado.conclusion) + '</p></div>';
+    }
+    
+    htmlContent += '<div class="firma"><div class="firma-linea">Dr(a). ' + escapeHtml(doctorNombre) + '</div>';
+    htmlContent += '<div style="font-size:10px;color:#666;margin-top:3px;">Firma y Sello</div></div>';
+    
+    htmlContent += '<div class="footer"><strong>Gracias por confiar en nosotros!</strong> | <span style="color:#87CEEB;">Su salud es nuestra prioridad</span></div>';
+    
+    htmlContent += '<div class="no-print" style="text-align:center;padding:20px;">';
+    htmlContent += '<button onclick="window.print()" style="padding:15px 40px;background:#1a3a5c;color:white;border:none;border-radius:8px;cursor:pointer;font-weight:bold;">Imprimir</button></div>';
+    
+    htmlContent += '</body></html>';
+    
+    ventana.document.write(htmlContent);
+    ventana.document.close();
+  };
+
   return (
     <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto' }}>
-      <h1 style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 25 }}>
-        <FaBarcode style={{ color: '#9b59b6' }} /> Consulta Rápida
-      </h1>
-
-      {/* Barra de búsqueda */}
       <div style={{
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-        padding: 30,
-        borderRadius: 15,
-        marginBottom: 25,
-        boxShadow: '0 10px 30px rgba(102,126,234,0.3)'
+        background: loading ? 'linear-gradient(135deg, #87CEEB 0%, #1a3a5c 100%)' : 
+                    error ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)' :
+                    paciente ? 'linear-gradient(135deg, #87CEEB 0%, #5fa8d3 100%)' :
+                    'linear-gradient(135deg, #1a3a5c 0%, #2d5a87 100%)',
+        padding: 40, borderRadius: 20, marginBottom: 30, boxShadow: '0 15px 35px rgba(26,58,92,0.3)'
       }}>
-        <div style={{ textAlign: 'center', color: 'white', marginBottom: 20 }}>
-          <FaBarcode style={{ fontSize: 40, marginBottom: 10 }} />
-          <h2 style={{ margin: 0 }}>Escanee el código de barras</h2>
-          <p style={{ margin: '5px 0 0', opacity: 0.9 }}>o ingrese el código manualmente</p>
+        <div style={{ textAlign: 'center', color: 'white', marginBottom: 25 }}>
+          <FaBarcode style={{ fontSize: 50, marginBottom: 15 }} />
+          <h1 style={{ margin: 0, fontSize: 32 }}>
+            {loading ? 'Buscando...' : error ? 'Error' : paciente ? 'Paciente Encontrado' : 'Escanee el Codigo de Barras'}
+          </h1>
+          <p style={{ margin: '10px 0 0', opacity: 0.95, fontSize: 16 }}>
+            {loading ? 'Consultando...' : error ? error : paciente ? `${paciente.nombre}` : 'Acerque el lector al codigo'}
+          </p>
         </div>
 
-        <div style={{ display: 'flex', gap: 10, maxWidth: 500, margin: '0 auto' }}>
+        <div style={{ maxWidth: 600, margin: '0 auto' }}>
           <input
             ref={inputRef}
             type="text"
             value={codigo}
             onChange={e => setCodigo(e.target.value.toUpperCase())}
-            onKeyPress={e => e.key === 'Enter' && buscarManual()}
+            onKeyPress={e => e.key === 'Enter' && buscarPaciente()}
             placeholder="PAC########"
-            style={{
-              flex: 1,
-              padding: '15px 20px',
-              fontSize: 20,
-              fontFamily: 'monospace',
-              fontWeight: 'bold',
-              textAlign: 'center',
-              border: 'none',
-              borderRadius: 10,
-              letterSpacing: 3
-            }}
             autoFocus
-          />
-          <button
-            onClick={buscarManual}
-            disabled={loading}
             style={{
-              padding: '15px 25px',
-              background: 'white',
-              color: '#667eea',
-              border: 'none',
-              borderRadius: 10,
-              cursor: 'pointer',
-              fontWeight: 'bold',
-              fontSize: 16
+              width: '100%', padding: '20px', fontSize: 28, fontFamily: 'Courier New, monospace',
+              fontWeight: 'bold', textAlign: 'center', border: '3px solid ' + colores.azulCielo,
+              borderRadius: 15, background: 'rgba(255,255,255,0.95)', color: colores.azulOscuro, letterSpacing: 4
             }}
-          >
-            {loading ? <FaSpinner className="spin" /> : <FaSearch />}
+          />
+          <button onClick={buscarPaciente} disabled={loading || codigo.length < 5} style={{
+            width: '100%', marginTop: 15, padding: '15px', background: colores.azulCielo,
+            border: 'none', borderRadius: 10, color: colores.azulOscuro, cursor: 'pointer', fontSize: 16, fontWeight: 'bold'
+          }}>
+            {loading ? <FaSpinner className="spin" /> : <><FaSearch /> Buscar</>}
           </button>
         </div>
 
-        {error && (
-          <div style={{ 
-            background: 'rgba(255,255,255,0.2)', 
-            color: 'white', 
-            padding: 10, 
-            borderRadius: 8, 
-            marginTop: 15,
-            textAlign: 'center'
-          }}>
-            ?? {error}
+        {paciente && (
+          <div style={{ textAlign: 'center', marginTop: 20 }}>
+            <button onClick={limpiar} style={{
+              padding: '12px 30px', background: 'rgba(255,255,255,0.2)', border: '2px solid white',
+              borderRadius: 10, color: 'white', cursor: 'pointer', fontSize: 16, fontWeight: 'bold'
+            }}>Nueva Busqueda</button>
           </div>
         )}
       </div>
 
-      {/* Resultado de búsqueda */}
       {paciente && (
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 20 }}>
-          {/* Info del paciente */}
+        <div style={{ display: 'grid', gridTemplateColumns: '350px 1fr', gap: 25 }}>
           <div style={{
-            background: 'white',
-            padding: 25,
-            borderRadius: 15,
-            boxShadow: '0 2px 15px rgba(0,0,0,0.08)'
+            background: 'white', padding: 25, borderRadius: 15, boxShadow: '0 5px 20px rgba(0,0,0,0.08)',
+            borderTop: '5px solid ' + colores.azulOscuro, height: 'fit-content'
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 15 }}>
-              <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-                <FaUser style={{ color: '#3498db' }} /> Paciente
-              </h3>
-              <button onClick={limpiar} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#999' }}>
-                <FaTimes />
-              </button>
+            <div style={{ textAlign: 'center', marginBottom: 20 }}>
+              <div style={{
+                width: 80, height: 80, background: 'linear-gradient(135deg, ' + colores.azulCielo + ' 0%, ' + colores.azulOscuro + ' 100%)',
+                borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                margin: '0 auto 15px', fontSize: 35, color: 'white'
+              }}><FaUser /></div>
+              <h2 style={{ margin: 0, color: colores.azulOscuro }}>{paciente.nombre} {paciente.apellido}</h2>
             </div>
-
-            <div style={{ background: '#f8f9fa', padding: 15, borderRadius: 10 }}>
-              <h2 style={{ margin: '0 0 10px', color: '#2c3e50' }}>
-                {paciente.nombre} {paciente.apellido}
-              </h2>
-              <div style={{ display: 'grid', gap: 8, fontSize: 14 }}>
-                <div><strong>Cédula:</strong> {paciente.cedula}</div>
-                <div><strong>Teléfono:</strong> {paciente.telefono}</div>
-                <div><strong>Edad:</strong> {calcularEdad(paciente.fechaNacimiento)} años</div>
-                <div><strong>Sexo:</strong> {paciente.sexo === 'M' ? 'Masculino' : 'Femenino'}</div>
-                {paciente.tipoSangre && <div><strong>Sangre:</strong> {paciente.tipoSangre}</div>}
-              </div>
-            </div>
-
-            <div style={{ marginTop: 15, padding: 15, background: '#e8f5e9', borderRadius: 10 }}>
-              <div style={{ fontWeight: 'bold', color: '#27ae60', marginBottom: 5 }}>
-                ?? Resumen
-              </div>
-              <div style={{ fontSize: 14 }}>
-                Total de estudios: <strong>{resultados.length}</strong>
-              </div>
-              <div style={{ fontSize: 14 }}>
-                Listos: <strong style={{ color: '#27ae60' }}>
-                  {resultados.filter(r => r.estado === 'completado').length}
-                </strong>
-              </div>
-              <div style={{ fontSize: 14 }}>
-                Pendientes: <strong style={{ color: '#f39c12' }}>
-                  {resultados.filter(r => r.estado !== 'completado').length}
-                </strong>
-              </div>
+            <div style={{ background: '#f0f8ff', padding: 15, borderRadius: 10, fontSize: 14 }}>
+              <div style={{ marginBottom: 8 }}><strong>Cedula:</strong> {paciente.cedula}</div>
+              <div style={{ marginBottom: 8 }}><strong>Telefono:</strong> {paciente.telefono}</div>
+              <div style={{ marginBottom: 8 }}><strong>Edad:</strong> {calcularEdad(paciente.fechaNacimiento)} años</div>
+              <div style={{ marginBottom: 8 }}><strong>Sexo:</strong> {paciente.sexo === 'M' ? 'Masculino' : 'Femenino'}</div>
+              <div style={{ marginBottom: 8 }}><strong>Nacionalidad:</strong> {paciente.nacionalidad || 'Dominicano'}</div>
+              <div><strong>Seguro:</strong> {getSeguroNombre(paciente)}</div>
             </div>
           </div>
 
-          {/* Resultados */}
-          <div style={{
-            background: 'white',
-            padding: 25,
-            borderRadius: 15,
-            boxShadow: '0 2px 15px rgba(0,0,0,0.08)'
-          }}>
-            <h3 style={{ margin: '0 0 20px', display: 'flex', alignItems: 'center', gap: 8 }}>
-              <FaFlask style={{ color: '#9b59b6' }} /> Resultados ({resultados.length})
+          <div>
+            <h3 style={{ marginBottom: 20, color: colores.azulOscuro }}>
+              <FaFlask style={{ color: colores.azulCielo }} /> Resultados ({resultados.length})
             </h3>
-
             {resultados.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: 40, color: '#999' }}>
-                <FaFlask style={{ fontSize: 50, marginBottom: 15, opacity: 0.3 }} />
-                <p>No hay resultados registrados</p>
+              <div style={{ textAlign: 'center', padding: 60, background: 'white', borderRadius: 15 }}>
+                <FaFlask style={{ fontSize: 60, color: colores.azulCielo, marginBottom: 20 }} />
+                <p style={{ color: '#999', fontSize: 18 }}>No hay resultados registrados</p>
               </div>
             ) : (
-              <div style={{ display: 'grid', gap: 12 }}>
+              <div style={{ display: 'grid', gap: 15 }}>
                 {resultados.map(r => (
-                  <div
-                    key={r._id}
-                    style={{
-                      padding: 15,
-                      border: '1px solid #eee',
-                      borderRadius: 10,
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      background: r.estado === 'completado' ? '#f8fff8' : '#fffdf8'
-                    }}
-                  >
+                  <div key={r._id || r.id} style={{
+                    padding: 20, background: 'white', border: '2px solid ' + (r.estado === 'completado' ? '#27ae60' : colores.azulCielo),
+                    borderRadius: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+                  }}>
                     <div>
-                      <div style={{ fontWeight: 'bold', marginBottom: 5 }}>
-                        {r.estudio?.nombre || 'Estudio'}
-                      </div>
-                      <div style={{ fontSize: 12, color: '#666' }}>
-                        {new Date(r.createdAt).toLocaleDateString('es-DO')}
+                      <h4 style={{ margin: '0 0 8px', color: colores.azulOscuro }}>{r.estudio?.nombre || r.nombreEstudio || 'Estudio'}</h4>
+                      <div style={{ fontSize: 13, color: '#666' }}>
+                        {new Date(r.createdAt || r.fecha).toLocaleDateString('es-DO')}
                         {r.estado === 'completado' ? (
-                          <span style={{ marginLeft: 10, color: '#27ae60' }}>
-                            <FaCheckCircle /> Listo
-                          </span>
+                          <span style={{ marginLeft: 15, color: '#27ae60' }}><FaCheckCircle /> Completado</span>
                         ) : (
-                          <span style={{ marginLeft: 10, color: '#f39c12' }}>
-                            <FaClock /> {r.estado || 'Pendiente'}
-                          </span>
+                          <span style={{ marginLeft: 15, color: '#f39c12' }}><FaClock /> {r.estado || 'Pendiente'}</span>
                         )}
                       </div>
                     </div>
-
-                    <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ display: 'flex', gap: 10 }}>
                       {r.estado === 'completado' && (
-                        <button
-                          onClick={() => imprimirResultado(r)}
-                          style={{
-                            padding: '8px 15px',
-                            background: '#27ae60',
-                            color: 'white',
-                            border: 'none',
-                            borderRadius: 6,
-                            cursor: 'pointer',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 5,
-                            fontWeight: 'bold'
-                          }}
-                        >
-                          <FaPrint /> Imprimir
-                        </button>
+                        <button onClick={() => imprimirResultado(r)} style={{
+                          padding: '12px 25px', background: colores.azulOscuro, color: 'white',
+                          border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 'bold'
+                        }}><FaPrint /> IMPRIMIR</button>
                       )}
-                      <button
-                        onClick={() => setResultadoSeleccionado(r)}
-                        style={{
-                          padding: '8px 15px',
-                          background: '#3498db',
-                          color: 'white',
-                          border: 'none',
-                          borderRadius: 6,
-                          cursor: 'pointer',
-                          fontWeight: 'bold'
-                        }}
-                      >
-                        Ver
-                      </button>
                     </div>
                   </div>
                 ))}
@@ -446,174 +416,30 @@ const ConsultaRapida = () => {
         </div>
       )}
 
-      {/* Modal de detalle */}
-      {resultadoSeleccionado && (
-        <div style={{
-          position: 'fixed',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: 'rgba(0,0,0,0.7)',
-          display: 'flex',
-          justifyContent: 'center',
-          alignItems: 'center',
-          zIndex: 1000,
-          padding: 20
-        }}>
-          <div style={{
-            background: 'white',
-            padding: 30,
-            borderRadius: 15,
-            maxWidth: 700,
-            width: '100%',
-            maxHeight: '90vh',
-            overflow: 'auto'
-          }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2 style={{ margin: 0 }}>{resultadoSeleccionado.estudio?.nombre}</h2>
-              <button
-                onClick={() => setResultadoSeleccionado(null)}
-                style={{ background: 'none', border: 'none', fontSize: 24, cursor: 'pointer' }}
-              >
-                ×
-              </button>
-            </div>
-
-            {resultadoSeleccionado.valores?.length > 0 && (
-              <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: 20 }}>
-                <thead>
-                  <tr style={{ background: '#f8f9fa' }}>
-                    <th style={{ padding: 12, textAlign: 'left', borderBottom: '2px solid #ddd' }}>Parámetro</th>
-                    <th style={{ padding: 12, textAlign: 'center', borderBottom: '2px solid #ddd' }}>Valor</th>
-                    <th style={{ padding: 12, textAlign: 'center', borderBottom: '2px solid #ddd' }}>Referencia</th>
-                    <th style={{ padding: 12, textAlign: 'center', borderBottom: '2px solid #ddd' }}>Estado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {resultadoSeleccionado.valores.map((v, i) => (
-                    <tr key={i}>
-                      <td style={{ padding: 12, borderBottom: '1px solid #eee' }}>{v.parametro}</td>
-                      <td style={{ padding: 12, borderBottom: '1px solid #eee', textAlign: 'center', fontWeight: 'bold' }}>
-                        {v.valor} {v.unidad}
-                      </td>
-                      <td style={{ padding: 12, borderBottom: '1px solid #eee', textAlign: 'center', color: '#666' }}>
-                        {v.valorReferencia}
-                      </td>
-                      <td style={{ padding: 12, borderBottom: '1px solid #eee', textAlign: 'center' }}>
-                        <span style={{
-                          padding: '4px 12px',
-                          borderRadius: 15,
-                          fontSize: 12,
-                          background: v.estado === 'normal' ? '#d4edda' : v.estado === 'alto' ? '#f8d7da' : '#fff3cd',
-                          color: v.estado === 'normal' ? '#155724' : v.estado === 'alto' ? '#721c24' : '#856404'
-                        }}>
-                          {v.estado || 'N/A'}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-
-            {resultadoSeleccionado.interpretacion && (
-              <div style={{ marginBottom: 15 }}>
-                <strong>Interpretación:</strong>
-                <p style={{ background: '#f0f8ff', padding: 12, borderRadius: 8, marginTop: 5 }}>
-                  {resultadoSeleccionado.interpretacion}
-                </p>
+      {!paciente && !loading && (
+        <div style={{ background: 'white', padding: 35, borderRadius: 20, borderTop: '5px solid ' + colores.azulOscuro }}>
+          <h3 style={{ margin: '0 0 20px', color: colores.azulOscuro }}>📋 ¿Cómo usar la Consulta Rápida?</h3>
+          <p style={{ margin: '0 0 20px', color: '#555', lineHeight: 1.6 }}>
+            Esta pantalla permite consultar los resultados de una <strong>factura específica</strong> escaneando su código de barras o ingresando el código manualmente. 
+            Solo aparecerán los análisis y estudios correspondientes a esa factura.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20 }}>
+            {[
+              { num: 1, titulo: '🔍 Escanee el código', desc: 'Use el lector de código de barras en la factura impresa del paciente' },
+              { num: 2, titulo: '📄 Búsqueda automática', desc: 'El sistema carga solo los análisis de esa factura específica' },
+              { num: 3, titulo: '🖨️ Imprima resultados', desc: 'Valide e imprima los resultados disponibles para el paciente' },
+            ].map((item) => (
+              <div key={item.num} style={{ display: 'flex', gap: 15, alignItems: 'flex-start', padding: 15, background: '#f8f9fa', borderRadius: 10 }}>
+                <div style={{ width: 40, height: 40, minWidth: 40, background: colores.azulOscuro, color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: 16 }}>{item.num}</div>
+                <div>
+                  <strong style={{ display: 'block', marginBottom: 5 }}>{item.titulo}</strong>
+                  <span style={{ fontSize: 13, color: '#666' }}>{item.desc}</span>
+                </div>
               </div>
-            )}
-
-            {resultadoSeleccionado.conclusion && (
-              <div style={{ marginBottom: 15 }}>
-                <strong>Conclusión:</strong>
-                <p style={{ background: '#f0fff0', padding: 12, borderRadius: 8, marginTop: 5 }}>
-                  {resultadoSeleccionado.conclusion}
-                </p>
-              </div>
-            )}
-
-            <div style={{ display: 'flex', gap: 10, marginTop: 20 }}>
-              {resultadoSeleccionado.estado === 'completado' && (
-                <button
-                  onClick={() => imprimirResultado(resultadoSeleccionado)}
-                  style={{
-                    flex: 1,
-                    padding: 12,
-                    background: '#27ae60',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: 8,
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 8
-                  }}
-                >
-                  <FaPrint /> Imprimir Resultado
-                </button>
-              )}
-              <button
-                onClick={() => setResultadoSeleccionado(null)}
-                style={{
-                  flex: 1,
-                  padding: 12,
-                  background: '#6c757d',
-                  color: 'white',
-                  border: 'none',
-                  borderRadius: 8,
-                  cursor: 'pointer',
-                  fontWeight: 'bold'
-                }}
-              >
-                Cerrar
-              </button>
-            </div>
+            ))}
           </div>
-        </div>
-      )}
-
-      {/* Instrucciones */}
-      {!paciente && (
-        <div style={{
-          background: '#f8f9fa',
-          padding: 25,
-          borderRadius: 15,
-          marginTop: 20
-        }}>
-          <h3 style={{ margin: '0 0 15px', color: '#2c3e50' }}>?? Instrucciones</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: 20 }}>
-            <div style={{ display: 'flex', gap: 15 }}>
-              <div style={{ width: 40, height: 40, background: '#667eea', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>1</div>
-              <div>
-                <strong>Escanear código</strong>
-                <p style={{ margin: '5px 0 0', color: '#666', fontSize: 14 }}>
-                  Use el lector de código de barras para escanear la factura del paciente
-                </p>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 15 }}>
-              <div style={{ width: 40, height: 40, background: '#667eea', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>2</div>
-              <div>
-                <strong>Ver resultados</strong>
-                <p style={{ margin: '5px 0 0', color: '#666', fontSize: 14 }}>
-                  Se mostrarán automáticamente los datos del paciente y sus resultados
-                </p>
-              </div>
-            </div>
-            <div style={{ display: 'flex', gap: 15 }}>
-              <div style={{ width: 40, height: 40, background: '#667eea', color: 'white', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>3</div>
-              <div>
-                <strong>Imprimir</strong>
-                <p style={{ margin: '5px 0 0', color: '#666', fontSize: 14 }}>
-                  Haga clic en "Imprimir" para entregar los resultados al paciente
-                </p>
-              </div>
-            </div>
+          <div style={{ marginTop: 20, padding: 15, background: '#fff3cd', borderRadius: 10, border: '1px solid #ffc107' }}>
+            <strong>💡 Tip:</strong> El código de barras de la factura filtra <em>únicamente</em> los estudios de esa visita. Para ver el historial completo del paciente, use la sección de "Búsqueda de Pacientes".
           </div>
         </div>
       )}
