@@ -103,7 +103,22 @@ const ConsultaRapida = () => {
         } catch (e) { /* continuar */ }
       }
 
-      // 3. Intentar como código de muestra (L1234 o número simple)
+      // 3. Intentar como ID de registro / código de barras de orden
+      if (/^(ORD)?\d{5}$/i.test(codigoLimpio)) {
+        try {
+          const registroResp = await api.buscarRegistroPorIdOCodigo(codigoLimpio);
+          const payload = registroResp.data || registroResp;
+          if (payload?.cita?.paciente) {
+            setPaciente(payload.cita.paciente);
+            setResultados(payload.resultados || []);
+            return;
+          }
+        } catch (e) {
+          // continuar con otras estrategias
+        }
+      }
+
+      // 4. Intentar como código de muestra (L1234 o número simple)
       const esFormatoSimple = /^L?\d+$/.test(codigo) && codigo.length >= CODIGO_MUESTRA_SIMPLE_MIN_LENGTH;
       if (esFormatoSimple || (codigo.startsWith(CODIGO_MUESTRA_PREFIX) && codigo.length >= CODIGO_MUESTRA_MIN_LENGTH)) {
         try {
@@ -125,7 +140,7 @@ const ConsultaRapida = () => {
         }
       }
 
-      // 4. Intentar como código de paciente (PAC...)
+      // 5. Intentar como código de paciente (PAC...)
       const idParcial = codigo.replace(CODIGO_PACIENTE_PREFIX, '').toLowerCase();
       const response = await api.getPacientes({ search: '' });
       const pacientes = response.data || response || [];
@@ -309,7 +324,7 @@ const ConsultaRapida = () => {
             {loading ? 'Buscando...' : error ? 'Error' : paciente ? 'Paciente Encontrado' : 'Escanee el Codigo de Barras'}
           </h1>
           <p style={{ margin: '10px 0 0', opacity: 0.95, fontSize: 16 }}>
-            {loading ? 'Consultando...' : error ? error : paciente ? `${paciente.nombre}` : 'Acerque el lector al codigo'}
+            {loading ? 'Consultando...' : error ? error : paciente ? `${paciente.nombre}` : 'Acerque el lector: admite ORD00001 / 00001 / códigos de muestra'}
           </p>
         </div>
 
