@@ -58,8 +58,17 @@ const pacienteValidation = [
         .notEmpty().withMessage('El apellido es requerido')
         .trim(),
     body('cedula')
-        .notEmpty().withMessage('La cédula es requerida')
+        .optional({ checkFalsy: true })
         .trim(),
+    body('esMenor')
+        .optional()
+        .isBoolean().withMessage('esMenor debe ser booleano'),
+    body().custom((value) => {
+        if (!value.esMenor && !value.cedula) {
+            throw new Error('La cédula es requerida cuando no es menor de edad');
+        }
+        return true;
+    }),
     body('fechaNacimiento')
         .notEmpty().withMessage('La fecha de nacimiento es requerida')
         .isISO8601().withMessage('Fecha inválida'),

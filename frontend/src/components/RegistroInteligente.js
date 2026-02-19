@@ -24,6 +24,7 @@ const RegistroInteligente = () => {
     nombre: '',
     apellido: '',
     cedula: '',
+    esMenor: false,
     telefono: '',
     email: '',
     fechaNacimiento: '',
@@ -76,7 +77,7 @@ const RegistroInteligente = () => {
   };
 
   const crearPaciente = async () => {
-    if (!nuevoPaciente.nombre || !nuevoPaciente.apellido || !nuevoPaciente.cedula || !nuevoPaciente.telefono || !nuevoPaciente.fechaNacimiento) {
+    if (!nuevoPaciente.nombre || !nuevoPaciente.apellido || (!nuevoPaciente.esMenor && !nuevoPaciente.cedula) || !nuevoPaciente.telefono || !nuevoPaciente.fechaNacimiento) {
       alert('Complete todos los campos obligatorios');
       return;
     }
@@ -88,6 +89,7 @@ const RegistroInteligente = () => {
         nombre: nuevoPaciente.nombre,
         apellido: nuevoPaciente.apellido,
         cedula: nuevoPaciente.cedula,
+        esMenor: nuevoPaciente.esMenor,
         telefono: nuevoPaciente.telefono,
         email: nuevoPaciente.email,
         fechaNacimiento: nuevoPaciente.fechaNacimiento,
