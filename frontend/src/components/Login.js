@@ -37,10 +37,13 @@ const Login = ({ onLogin }) => {
         }
     };
 
+    const colorPrimario = empresaConfig.color_primario || '#667eea';
+    const colorSecundario = empresaConfig.color_secundario || '#764ba2';
+
     return (
         <div style={{
             minHeight: '100vh',
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: `linear-gradient(135deg, ${colorPrimario} 0%, ${colorSecundario} 100%)`,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -57,7 +60,7 @@ const Login = ({ onLogin }) => {
             }}>
                 <div style={{
                     flex: '1',
-                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    background: `linear-gradient(135deg, ${colorPrimario} 0%, ${colorSecundario} 100%)`,
                     padding: '60px 40px',
                     color: 'white',
                     display: 'flex',
@@ -166,7 +169,7 @@ const Login = ({ onLogin }) => {
                             style={{
                                 width: '100%',
                                 padding: '14px',
-                                background: loading ? '#a0aec0' : 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                                background: loading ? '#a0aec0' : `linear-gradient(135deg, ${colorPrimario} 0%, ${colorSecundario} 100%)`,
                                 color: 'white',
                                 border: 'none',
                                 borderRadius: '10px',

@@ -53,7 +53,7 @@ router.put('/', protect, authorize('admin'), async (req, res) => {
 // GET /api/configuracion/empresa - Public company info (no auth required)
 router.get('/empresa', async (req, res) => {
     try {
-        const claves = ['empresa_nombre', 'empresa_rnc', 'empresa_telefono', 'empresa_direccion', 'empresa_email', 'logo_login', 'logo_factura', 'logo_resultados'];
+        const claves = ['empresa_nombre', 'empresa_rnc', 'empresa_telefono', 'empresa_direccion', 'empresa_email', 'logo_login', 'logo_factura', 'logo_resultados', 'color_primario', 'color_secundario', 'color_acento'];
         const configs = await Configuracion.find({ clave: { $in: claves } });
 
         const info = {};
@@ -65,6 +65,38 @@ router.get('/empresa', async (req, res) => {
             }
         });
         res.json(info);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+
+// GET /api/configuracion/servidor - Runtime/server config summary
+router.get('/servidor', protect, async (req, res) => {
+    try {
+        const claves = [
+            'servidor_nombre',
+            'servidor_ip_publica',
+            'servidor_ip_privada',
+            'servidor_dominio',
+            'frontend_url',
+            'backend_url',
+            'cors_origenes'
+        ];
+        const configs = await Configuracion.find({ clave: { $in: claves } });
+        const guardado = {};
+        configs.forEach(c => { guardado[c.clave] = c.valor; });
+
+        res.json({
+            runtime: {
+                host: process.env.HOST || '0.0.0.0',
+                port: Number(process.env.PORT || 5000),
+                public_api_url: process.env.PUBLIC_API_URL || '',
+                frontend_url: process.env.FRONTEND_URL || '',
+                cors_origins: (process.env.CORS_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean)
+            },
+            guardado
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

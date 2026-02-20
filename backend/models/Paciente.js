@@ -14,9 +14,14 @@ const pacienteSchema = new mongoose.Schema({
     },
     cedula: {
         type: String,
-        required: [true, 'La cédula es requerida'],
+        required: false,
         unique: true,
+        sparse: true,
         trim: true
+    },
+    esMenor: {
+        type: Boolean,
+        default: false
     },
     fechaNacimiento: {
         type: Date,
@@ -110,6 +115,14 @@ const pacienteSchema = new mongoose.Schema({
     timestamps: true,
     toJSON: { virtuals: true },
     toObject: { virtuals: true }
+});
+
+
+pacienteSchema.pre('validate', function(next) {
+    if (this.esMenor && !this.cedula) {
+        this.cedula = `MENOR-${Date.now()}`;
+    }
+    next();
 });
 
 // Virtual: nombre completo

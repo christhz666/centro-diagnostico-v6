@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
     getCitas, getCita, createCita, updateCita,
-    cambiarEstado, citasHoy
+    cambiarEstado, citasHoy, getCitaByRegistro, buscarPacienteHistorial
 } = require('../controllers/citaController');
 const { protect, authorize } = require('../middleware/auth');
 const { citaValidation, idValidation } = require('../middleware/validators');
@@ -10,6 +10,8 @@ const { citaValidation, idValidation } = require('../middleware/validators');
 router.use(protect);
 
 router.get('/hoy', citasHoy);
+router.get('/registro/:registroId', getCitaByRegistro);
+router.get('/busqueda/paciente', buscarPacienteHistorial);
 
 router.route('/')
     .get(getCitas)

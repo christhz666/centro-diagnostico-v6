@@ -143,6 +143,15 @@ class ApiService {
         return this.request('/citas/' + id, { method: 'PUT', body: JSON.stringify(data) });
     }
 
+
+    async buscarRegistroPorIdOCodigo(registroId) {
+        return this.request('/citas/registro/' + encodeURIComponent(registroId));
+    }
+
+    async buscarHistorialPaciente(query) {
+        return this.request('/citas/busqueda/paciente?query=' + encodeURIComponent(query));
+    }
+
     async getFacturas(params = {}) {
         const query = new URLSearchParams(params).toString();
         return this.request('/facturas/?' + query);

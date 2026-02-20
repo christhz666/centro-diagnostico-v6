@@ -1,5 +1,12 @@
 const mongoose = require('mongoose');
 
+const contadorRegistroSchema = new mongoose.Schema({
+    _id: { type: String, required: true },
+    seq: { type: Number, default: 0 }
+});
+
+const ContadorRegistro = mongoose.models.ContadorRegistro || mongoose.model('ContadorRegistro', contadorRegistroSchema);
+
 const citaSchema = new mongoose.Schema({
     // Relaciones
     paciente: {
@@ -124,6 +131,16 @@ const citaSchema = new mongoose.Schema({
     urgente: {
         type: Boolean,
         default: false
+    },
+    registroId: {
+        type: String,
+        unique: true,
+        sparse: true
+    },
+    codigoBarras: {
+        type: String,
+        unique: true,
+        sparse: true
     }
 }, {
     timestamps: true,
@@ -142,10 +159,29 @@ citaSchema.pre('save', function(next) {
     next();
 });
 
+citaSchema.pre('validate', async function(next) {
+    if (!this.registroId) {
+        const contador = await ContadorRegistro.findByIdAndUpdate(
+            'registro_orden',
+            { $inc: { seq: 1 } },
+            { new: true, upsert: true }
+        );
+        this.registroId = String(contador.seq).padStart(5, '0');
+    }
+
+    if (!this.codigoBarras && this.registroId) {
+        this.codigoBarras = `ORD${this.registroId}`;
+    }
+
+    next();
+});
+
 // Índices
 citaSchema.index({ paciente: 1, fecha: 1 });
 citaSchema.index({ medico: 1, fecha: 1 });
 citaSchema.index({ estado: 1 });
 citaSchema.index({ fecha: 1 });
+citaSchema.index({ registroId: 1 });
+citaSchema.index({ codigoBarras: 1 });
 
 module.exports = mongoose.model('Cita', citaSchema);

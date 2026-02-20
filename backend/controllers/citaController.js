@@ -39,6 +39,10 @@ exports.getCitas = async (req, res, next) => {
             filter.paciente = req.query.paciente;
         }
 
+        if (req.query.registroId) {
+            filter.registroId = req.query.registroId;
+        }
+
         // Filtrar por médico
         if (req.query.medico) {
             filter.medico = req.query.medico;
@@ -249,6 +253,64 @@ exports.citasHoy = async (req, res, next) => {
             count: citas.length,
             data: citas
         });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc    Buscar orden por ID de registro o código de barras
+// @route   GET /api/citas/registro/:registroId
+exports.getCitaByRegistro = async (req, res, next) => {
+    try {
+        const registroId = String(req.params.registroId || '').trim().toUpperCase();
+        const query = {
+            $or: [
+                { registroId },
+                { codigoBarras: registroId },
+                { codigoBarras: `ORD${registroId.replace(/^ORD/, '')}` }
+            ]
+        };
+
+        const cita = await Cita.findOne(query)
+            .populate('paciente', 'nombre apellido cedula telefono nacionalidad')
+            .populate('estudios.estudio', 'nombre codigo categoria precio')
+            .sort('-createdAt');
+
+        if (!cita) {
+            return res.status(404).json({ success: false, message: 'Registro no encontrado' });
+        }
+
+        const resultados = await require('../models/Resultado').find({ cita: cita._id })
+            .populate('estudio', 'nombre codigo categoria')
+            .sort('-createdAt');
+
+        res.json({ success: true, data: { cita, resultados } });
+    } catch (error) {
+        next(error);
+    }
+};
+
+// @desc Buscar historial global del paciente por nombre/teléfono/cédula
+// @route GET /api/citas/busqueda/paciente?query=
+exports.buscarPacienteHistorial = async (req, res, next) => {
+    try {
+        const query = String(req.query.query || '').trim();
+        if (!query || query.length < 2) {
+            return res.status(400).json({ success: false, message: 'query requerido (mínimo 2 caracteres)' });
+        }
+
+        const rx = new RegExp(query, 'i');
+        const pacientes = await Paciente.find({
+            $or: [{ nombre: rx }, { apellido: rx }, { telefono: rx }, { cedula: rx }]
+        }).limit(20);
+
+        const ids = pacientes.map(p => p._id);
+        const citas = await Cita.find({ paciente: { $in: ids } })
+            .populate('paciente', 'nombre apellido cedula telefono')
+            .populate('estudios.estudio', 'nombre codigo categoria')
+            .sort('-createdAt');
+
+        res.json({ success: true, count: citas.length, data: citas });
     } catch (error) {
         next(error);
     }
