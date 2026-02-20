@@ -28,6 +28,7 @@ function AdminPanel() {
     frontend_url: '',
     backend_url: '',
     cors_origenes: ''
+    color_acento: '#27ae60'
   });
 
   const token = localStorage.getItem('token');

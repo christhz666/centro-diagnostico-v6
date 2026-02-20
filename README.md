@@ -133,3 +133,7 @@ Ver guía en: `qt6-centroapp/README.md`.
 ## Revisión manual de compatibilidad
 
 - Ver `docs/REVISION_MANUAL_COMPATIBILIDAD.md`.
+## Revisión manual de compatibilidad
+
+- Ver `docs/REVISION_MANUAL_COMPATIBILIDAD.md`.
+
