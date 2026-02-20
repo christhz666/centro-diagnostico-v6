@@ -85,3 +85,37 @@ Se priorizó funcionalidad estable para:
 - base para web + instalación local real (sin emular web).
 
 Siguiente fase recomendada: hardening de integración LIS (HL7 listeners por equipo) y módulo PACS (Orthanc + viewer).
+
+
+## Configuración multi-servidor (IP/host por instancia)
+
+Cada servidor debe tener su propio `backend/.env` (copiado de `backend/.env.example`) con sus valores:
+
+- `HOST` y `PORT`
+- `PUBLIC_API_URL`
+- `FRONTEND_URL`
+- `CORS_ORIGINS`
+- `MONGODB_URI`
+
+Ejemplo:
+
+```env
+HOST=0.0.0.0
+PORT=5000
+PUBLIC_API_URL=https://lab-a.midominio.com/api
+FRONTEND_URL=https://lab-a.midominio.com
+CORS_ORIGINS=https://lab-a.midominio.com,http://10.0.0.12:3000
+MONGODB_URI=mongodb://127.0.0.1:27017/centro_diagnostico
+```
+
+Además, en **Admin > Configuración de Servidor** puedes guardar metadatos por instalación:
+- nombre de servidor
+- IP pública
+- IP privada
+- dominio
+- frontend/backend URL
+- orígenes CORS esperados
+
+Y consultar runtime real vía API:
+- `GET /api/health`
+- `GET /api/configuracion/servidor` (autenticado)

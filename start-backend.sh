@@ -1,20 +1,22 @@
 #!/bin/bash
+set -e
 
-# Script para iniciar Centro Diagnóstico en producción
-
-cd ~/centro-diagnostico/backend
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$BASE_DIR/backend"
 
 echo "=========================================="
 echo "   CENTRO DIAGNÓSTICO - BACKEND"
 echo "=========================================="
 echo ""
 
-# Activar venv
-source venv/bin/activate
+if [ ! -f ".env" ]; then
+  echo "⚠️  No existe backend/.env. Copia backend/.env.example -> backend/.env"
+fi
 
-# Crear logs
-mkdir -p logs
+if [ ! -d "node_modules" ]; then
+  echo "Instalando dependencias backend..."
+  npm install
+fi
 
-# Ejecutar con gunicorn
-echo "? Iniciando con Gunicorn (4 workers)..."
-gunicorn -w 4 -b 0.0.0.0:5000 --access-logfile logs/access.log --error-logfile logs/error.log 'run:app'
+echo "Iniciando backend Node..."
+npm start

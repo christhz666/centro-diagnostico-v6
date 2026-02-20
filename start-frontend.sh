@@ -1,20 +1,18 @@
 #!/bin/bash
+set -e
 
-# Script para iniciar Frontend
-
-cd ~/centro-diagnostico/frontend
+BASE_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$BASE_DIR/frontend"
 
 echo "=========================================="
 echo "   CENTRO DIAGNÓSTICO - FRONTEND"
 echo "=========================================="
 echo ""
 
-# Instalar dependencias si no existen
 if [ ! -d "node_modules" ]; then
-    echo "Instalando dependencias de npm..."
-    npm install
+  echo "Instalando dependencias frontend..."
+  npm install
 fi
 
-# Ejecutar
-echo "? Iniciando React..."
+echo "Iniciando React..."
 npm start

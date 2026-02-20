@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-import { FaPalette, FaSave, FaSpinner, FaImage, FaBuilding, FaMapMarkerAlt, FaCheckCircle } from 'react-icons/fa';
+import { FaPalette, FaSave, FaSpinner, FaImage, FaBuilding, FaMapMarkerAlt, FaCheckCircle, FaServer } from 'react-icons/fa';
 
 const API = '/api';
 
@@ -8,6 +8,7 @@ function AdminPanel() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [serverInfo, setServerInfo] = useState({ runtime: {}, guardado: {} });
   const [config, setConfig] = useState({
     empresa_nombre: '',
     empresa_direccion: '',
@@ -19,6 +20,14 @@ function AdminPanel() {
     logo_login: '',
     color_primario: '#1a3a5c',
     color_secundario: '#87CEEB',
+    color_acento: '#27ae60',
+    servidor_nombre: '',
+    servidor_ip_publica: '',
+    servidor_ip_privada: '',
+    servidor_dominio: '',
+    frontend_url: '',
+    backend_url: '',
+    cors_origenes: ''
     color_acento: '#27ae60'
   });
 
@@ -35,6 +44,12 @@ function AdminPanel() {
       const res = await axios.get(`${API}/configuracion/`, { headers });
       const data = res.data.configuracion || res.data || {};
       setConfig(prev => ({ ...prev, ...data }));
+      try {
+        const serverRes = await axios.get(`${API}/configuracion/servidor`, { headers });
+        setServerInfo(serverRes.data || { runtime: {}, guardado: {} });
+      } catch (e) {
+        // noop
+      }
     } catch (err) {
       console.error('Error cargando configuración:', err);
     } finally {
@@ -250,6 +265,49 @@ function AdminPanel() {
             <label style={styles.label}>Color Acento</label>
             <input type="color" value={config.color_acento || '#27ae60'} onChange={e => setConfig({ ...config, color_acento: e.target.value })} style={{...styles.input,padding:'6px'}} />
           </div>
+        </div>
+      </div>
+
+
+      <div style={styles.section}>
+        <h3 style={styles.sectionTitle}><FaServer style={{ color: '#16a085' }} /> Configuración de Servidor</h3>
+        <div style={{ background: '#f7fafc', borderRadius: 8, padding: 12, marginBottom: 15, fontSize: 13 }}>
+          <div><strong>Runtime Host:</strong> {serverInfo.runtime?.host || 'N/A'}:{serverInfo.runtime?.port || 'N/A'}</div>
+          <div><strong>Public API URL:</strong> {serverInfo.runtime?.public_api_url || 'No definida'}</div>
+          <div><strong>Frontend URL:</strong> {serverInfo.runtime?.frontend_url || 'No definida'}</div>
+          <div><strong>CORS runtime:</strong> {(serverInfo.runtime?.cors_origins || []).join(', ') || 'No definido'}</div>
+        </div>
+
+        <div style={styles.formGrid}>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Nombre del Servidor</label>
+            <input type="text" value={config.servidor_nombre || ''} onChange={e => setConfig({ ...config, servidor_nombre: e.target.value })} style={styles.input} placeholder="Ej: VPS-Oracle-SD-01" />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>IP Pública</label>
+            <input type="text" value={config.servidor_ip_publica || ''} onChange={e => setConfig({ ...config, servidor_ip_publica: e.target.value })} style={styles.input} placeholder="Ej: 192.9.x.x" />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>IP Privada</label>
+            <input type="text" value={config.servidor_ip_privada || ''} onChange={e => setConfig({ ...config, servidor_ip_privada: e.target.value })} style={styles.input} placeholder="Ej: 10.0.0.15" />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Dominio</label>
+            <input type="text" value={config.servidor_dominio || ''} onChange={e => setConfig({ ...config, servidor_dominio: e.target.value })} style={styles.input} placeholder="Ej: cdp.midominio.com" />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Frontend URL</label>
+            <input type="text" value={config.frontend_url || ''} onChange={e => setConfig({ ...config, frontend_url: e.target.value })} style={styles.input} placeholder="Ej: https://cdp.midominio.com" />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Backend URL</label>
+            <input type="text" value={config.backend_url || ''} onChange={e => setConfig({ ...config, backend_url: e.target.value })} style={styles.input} placeholder="Ej: https://cdp.midominio.com/api" />
+          </div>
+        </div>
+        <div style={styles.formGroup}>
+          <label style={styles.label}>CORS Orígenes (separados por coma)</label>
+          <input type="text" value={config.cors_origenes || ''} onChange={e => setConfig({ ...config, cors_origenes: e.target.value })} style={styles.input} placeholder="https://a.com,https://b.com" />
+          <small style={styles.hint}>Nota: para aplicar al runtime Node, reflejar también en variables de entorno del servidor.</small>
         </div>
       </div>
 

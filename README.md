@@ -129,8 +129,11 @@ Ver guía en: `qt6-centroapp/README.md`.
 
 - Ver `docs/README_ENTERPRISE.md` para instalación, arquitectura operativa y flujo clínico actualizado.
 
+
 ## Revisión manual de compatibilidad
 
 - Ver `docs/REVISION_MANUAL_COMPATIBILIDAD.md`.
-=======
+## Revisión manual de compatibilidad
+
+- Ver `docs/REVISION_MANUAL_COMPATIBILIDAD.md`.
 

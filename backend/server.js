@@ -5,6 +5,7 @@ const morgan = require('morgan');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const dotenv = require('dotenv');
+const os = require('os');
 
 // Cargar variables de entorno
 dotenv.config();
@@ -17,6 +18,34 @@ const { errorHandler, notFound } = require('./middleware/errorHandler');
 
 // Inicializar Express
 const app = express();
+
+const getLocalIps = () => {
+    const interfaces = os.networkInterfaces();
+    const ips = [];
+    Object.values(interfaces).forEach((ifaces) => {
+        (ifaces || []).forEach((iface) => {
+            if (iface.family === 'IPv4' && !iface.internal) ips.push(iface.address);
+        });
+    });
+    return [...new Set(ips)];
+};
+
+const parseCorsOrigins = () => {
+    if (!process.env.CORS_ORIGINS) {
+        return [
+            'http://localhost:3000',
+            'http://localhost:5000',
+            process.env.FRONTEND_URL
+        ].filter(Boolean);
+    }
+
+    return process.env.CORS_ORIGINS
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+};
+
+const corsOrigins = parseCorsOrigins();
 
 // ==========================================
 // MIDDLEWARE DE SEGURIDAD
@@ -31,7 +60,7 @@ app.use(helmet({
 // Rate limiting - prevenir ataques de fuerza bruta
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
-    max: 10000, // máximo 200 requests por ventana
+    max: Number(process.env.RATE_LIMIT_MAX || 10000),
     message: {
         success: false,
         message: 'Demasiadas peticiones desde esta IP. Intente en 15 minutos.'
@@ -42,7 +71,7 @@ app.use('/api/', limiter);
 // Rate limit más estricto para login
 const loginLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 1000,
+    max: Number(process.env.RATE_LIMIT_LOGIN_MAX || 1000),
     message: {
         success: false,
         message: 'Demasiados intentos de login. Intente en 15 minutos.'
@@ -54,15 +83,8 @@ app.use('/api/auth/login', loginLimiter);
 // MIDDLEWARE GENERAL
 // ==========================================
 
-// CORS - Permitir comunicación frontend ? backend
 app.use(cors({
-    origin: [
-        'http://192.9.135.84',
-        'http://192.9.135.84:3000',
-        'http://localhost:3000',
-        'http://localhost:5000',
-        process.env.FRONTEND_URL
-    ].filter(Boolean),
+    origin: corsOrigins,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
@@ -90,37 +112,17 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.get('/api/health', (req, res) => {
     res.json({
         success: true,
-        message: '?? Centro Diagnóstico Mi Esperanza - API funcionando',
+        message: 'Centro Diagnóstico - API funcionando',
         timestamp: new Date().toISOString(),
         environment: process.env.NODE_ENV,
-        uptime: process.uptime()
+        uptime: process.uptime(),
+        host: process.env.HOST || '0.0.0.0',
+        port: Number(process.env.PORT || 5000),
+        public_url: process.env.PUBLIC_API_URL || null,
+        local_ips: getLocalIps(),
+        cors_origins: corsOrigins
     });
 });
-
-
-// ========================================== 
-// RUTA DE PRUEBA DIRECTA
-// ==========================================
-// app.get('/api/equipos', async (req, res) => {
-//   console.log('?? TEST: /api/test-equipos');
-//   try {
-//     const Equipo = require('./models/Equipo');
-//     const equipos = await Equipo.find().sort({ nombre: 1 });
-//     console.log('?? TEST: Encontrados', equipos.length, 'equipos');
-//     res.json({ 
-//       success: true, 
-//       count: equipos.length, 
-//       equipos: equipos.map(e => ({ 
-//         id: e._id, 
-//         nombre: e.nombre, 
-//         tipo: e.tipo 
-//       }))
-//     });
-//   } catch (error) {
-//     console.error('?? TEST ERROR:', error.message);
-//     res.status(500).json({ success: false, error: error.message });
-//   }
-// });
 
 // Rutas principales
 app.use('/api/auth', require('./routes/auth'));
@@ -144,14 +146,12 @@ app.use('/api/whatsapp', require('./routes/whatsapp'));
 // SERVIR FRONTEND (React build)
 // ==========================================
 
-// Si existe el build de React, servirlo
 const frontendBuild = path.join(__dirname, '../frontend/build');
 const fs = require('fs');
 
 if (fs.existsSync(frontendBuild)) {
     app.use(express.static(frontendBuild));
-    
-    // Cualquier ruta que no sea /api, servir el index.html de React
+
     app.get('*', (req, res) => {
         if (!req.originalUrl.startsWith('/api')) {
             res.sendFile(path.join(frontendBuild, 'index.html'));
@@ -170,61 +170,57 @@ app.use(errorHandler);
 // INICIAR SERVIDOR
 // ==========================================
 
-const PORT = process.env.PORT || 5000;
+const PORT = Number(process.env.PORT || 5000);
+const HOST = process.env.HOST || '0.0.0.0';
 
-// Conectar a la base de datos y luego iniciar el servidor
 const startServer = async () => {
     try {
         await connectDB();
-        
-        app.listen(PORT, '0.0.0.0', () => {
+
+        app.listen(PORT, HOST, () => {
+            const ips = getLocalIps();
             console.log('');
             console.log('+---------------------------------------------------+');
-            console.log('¦  ?? Centro Diagnóstico Mi Esperanza              ¦');
-            console.log('¦  ?? API Server                                    ¦');
-            console.log(`¦  ?? Puerto: ${PORT}                                  ¦`);
-            console.log(`¦  ?? Entorno: ${process.env.NODE_ENV || 'development'}                        ¦`);
-            console.log(`¦  ?? API: http://192.9.135.84:${PORT}/api             ¦`);
-            console.log(`¦  ??  Health: http://192.9.135.84:${PORT}/api/health  ¦`);
+            console.log('¦  Centro Diagnóstico - API Server                 ¦');
+            console.log(`¦  Host/Puerto: ${HOST}:${PORT}`);
+            if (process.env.PUBLIC_API_URL) {
+                console.log(`¦  Public API: ${process.env.PUBLIC_API_URL}`);
+            }
+            console.log(`¦  Local IPs: ${ips.join(', ') || 'N/A'}`);
+            console.log(`¦  CORS: ${corsOrigins.join(', ') || 'N/A'}`);
             console.log('+---------------------------------------------------+');
             console.log('');
         });
     } catch (error) {
-        console.error('? Error fatal al iniciar:', error.message);
+        console.error('Error fatal al iniciar:', error.message);
         process.exit(1);
     }
 };
 
 startServer();
 
-// Manejo de errores no capturados
 process.on('unhandledRejection', (err) => {
-    console.error('? UNHANDLED REJECTION:', err.message);
+    console.error('UNHANDLED REJECTION:', err.message);
     console.error(err.stack);
 });
 
 process.on('uncaughtException', (err) => {
-    console.error('? UNCAUGHT EXCEPTION:', err.message);
+    console.error('UNCAUGHT EXCEPTION:', err.message);
     console.error(err.stack);
     process.exit(1);
 });
 
-// Graceful shutdown
 process.on('SIGTERM', () => {
-    console.log('?? SIGTERM recibido. Cerrando servidor...');
+    console.log('SIGTERM recibido. Cerrando servidor...');
     process.exit(0);
 });
 
 module.exports = app;
 
-// ==========================================
-// INICIAR SERVICIO DE EQUIPOS
-// ==========================================
 const equipoService = require('./services/equipoService');
 
-// Iniciar equipos automáticamente cuando el servidor esté listo
 setTimeout(() => {
   equipoService.iniciarTodos()
-    .then(() => console.log('? Servicio de equipos iniciado'))
-    .catch(err => console.error('??  Error iniciando equipos:', err.message));
-}, 3000); // Esperar 3 segundos después de que MongoDB conecte
+    .then(() => console.log('Servicio de equipos iniciado'))
+    .catch(err => console.error('Error iniciando equipos:', err.message));
+}, 3000);
