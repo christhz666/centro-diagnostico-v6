@@ -16,7 +16,10 @@ function AdminPanel() {
     empresa_email: '',
     logo_factura: '',
     logo_resultados: '',
-    logo_login: ''
+    logo_login: '',
+    color_primario: '#1a3a5c',
+    color_secundario: '#87CEEB',
+    color_acento: '#27ae60'
   });
 
   const token = localStorage.getItem('token');
@@ -227,6 +230,25 @@ function AdminPanel() {
             {config.logo_login && (
               <button onClick={() => setConfig({ ...config, logo_login: '' })} style={styles.removeBtn}>Quitar</button>
             )}
+          </div>
+        </div>
+      </div>
+
+
+      <div style={styles.section}>
+        <h3 style={styles.sectionTitle}><FaPalette style={{ color: '#9b59b6' }} /> Colores de Plantilla</h3>
+        <div style={styles.formGrid}>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Color Primario</label>
+            <input type="color" value={config.color_primario || '#1a3a5c'} onChange={e => setConfig({ ...config, color_primario: e.target.value })} style={{...styles.input,padding:'6px'}} />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Color Secundario</label>
+            <input type="color" value={config.color_secundario || '#87CEEB'} onChange={e => setConfig({ ...config, color_secundario: e.target.value })} style={{...styles.input,padding:'6px'}} />
+          </div>
+          <div style={styles.formGroup}>
+            <label style={styles.label}>Color Acento</label>
+            <input type="color" value={config.color_acento || '#27ae60'} onChange={e => setConfig({ ...config, color_acento: e.target.value })} style={{...styles.input,padding:'6px'}} />
           </div>
         </div>
       </div>

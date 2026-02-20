@@ -65,6 +65,15 @@ const facturaSchema = new mongoose.Schema({
     motivoAnulacion: String,
     fechaAnulacion: Date,
     notas: String,
+
+    registroIdNumerico: {
+        type: String,
+        index: true
+    },
+    codigoBarras: {
+        type: String,
+        index: true
+    },
     // QR único por factura para acceso a resultados
     codigoQR: {
         type: String,
@@ -121,5 +130,7 @@ facturaSchema.pre('validate', async function(next) {
 facturaSchema.index({ numero: 1 });
 facturaSchema.index({ paciente: 1 });
 facturaSchema.index({ createdAt: -1 });
+facturaSchema.index({ registroIdNumerico: 1 });
+facturaSchema.index({ codigoBarras: 1 });
 
 module.exports = mongoose.model('Factura', facturaSchema);

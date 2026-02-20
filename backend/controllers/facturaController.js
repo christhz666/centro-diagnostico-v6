@@ -30,6 +30,8 @@ exports.getFacturas = async (req, res, next) => {
             const searchRegex = new RegExp(req.query.search, 'i');
             filter.$or = [
                 { numero: searchRegex },
+                { registroIdNumerico: searchRegex },
+                { codigoBarras: searchRegex },
                 { 'datosCliente.nombre': searchRegex },
                 { 'datosCliente.cedula': searchRegex }
             ];
@@ -92,6 +94,14 @@ exports.createFactura = async (req, res, next) => {
                 success: false,
                 message: 'Paciente no encontrado'
             });
+        }
+
+        if (req.body.cita) {
+            const cita = await Cita.findById(req.body.cita).select('registroId codigoBarras');
+            if (cita) {
+                req.body.registroIdNumerico = cita.registroId;
+                req.body.codigoBarras = cita.codigoBarras;
+            }
         }
 
         // Snapshot de datos del cliente
@@ -307,7 +317,9 @@ exports.crearDesdeOrden = async (req, res, next) => {
             metodoPago: req.body.forma_pago || 'efectivo',
             tipo: req.body.tipo_comprobante === 'B01' ? 'fiscal' : 'consumidor_final',
             estado: 'emitida',
-            creadoPor: req.user._id
+            creadoPor: req.user._id,
+            registroIdNumerico: cita.registroId,
+            codigoBarras: cita.codigoBarras
         };
 
         const factura = await Factura.create(facturaData);

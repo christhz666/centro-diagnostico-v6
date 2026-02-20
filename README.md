@@ -123,3 +123,13 @@ Todos los logs se guardan en el directorio `logs/` con timestamp único. Los arc
 Se agregó una base de cliente de escritorio nativo offline-first en `qt6-centroapp/` para iniciar la migración de webview a app C++/Qt6.
 
 Ver guía en: `qt6-centroapp/README.md`.
+
+
+## Guía Enterprise (web + instalación local)
+
+- Ver `docs/README_ENTERPRISE.md` para instalación, arquitectura operativa y flujo clínico actualizado.
+
+
+## Revisión manual de compatibilidad
+
+- Ver `docs/REVISION_MANUAL_COMPATIBILIDAD.md`.
